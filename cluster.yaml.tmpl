@@ -1,0 +1,20 @@
+apiVersion: cluster.k8s.io/v1alpha1
+kind: Cluster
+metadata:
+  name: {{.ClusterName}}
+  namespace: {{.ClusterName}}
+spec:
+  clusterNetwork:
+    pods:
+      cidrBlocks:
+      - 192.168.0.0/16
+    serviceDomain: cluster.local
+    services:
+      cidrBlocks:
+      - 10.96.0.0/12
+  providerConfig:
+    value:
+      apiVersion: gceproviderconfig/v1alpha1
+      kind: GCEClusterProviderConfig
+      project: {{.GcpProject}}
+

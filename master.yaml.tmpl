@@ -1,0 +1,26 @@
+apiVersion: cluster.k8s.io/v1alpha1
+kind: Machine
+metadata:
+  generateName: {{.ClusterName}}-master-
+  labels:
+    set: master
+  name: {{.ClusterName}}-master-1
+  namespace: {{.ClusterName}}
+spec:
+  providerConfig:
+    value:
+      apiVersion: gceproviderconfig/v1alpha1
+      disks:
+      - initializeParams:
+          diskSizeGb: 30
+          diskType: pd-standard
+      kind: GCEMachineProviderConfig
+      machineType: n1-standard-2
+      os: ubuntu-1604-lts
+      roles:
+      - Master
+      zone: europe-west1-b
+  versions:
+    controlPlane: {{.ControlPlaneVersion}}
+    kubelet: {{.KubeletVersion}}
+
