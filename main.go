@@ -13,7 +13,6 @@ import (
 )
 
 const (
-	gcpProject          = "gcp-project-name"
 	kubeletVersion      = "1.9.4"
 	controlPlaneVersion = "1.9.4"
 
@@ -22,11 +21,16 @@ const (
 )
 
 var (
+	gcpProject  = ""
 	clusterTmpl *template.Template
 	masterTmpl  *template.Template
 )
 
 func main() {
+	if gcpProject = os.Getenv("GCP_PROJECT"); gcpProject == "" {
+		log.Fatal("GCP_PROJECT is not set")
+	}
+
 	tmplString, err := ioutil.ReadFile(clusterTmplPath)
 	if err != nil {
 		log.Fatalf("Could not read %s: %#v", clusterTmplPath, err)
