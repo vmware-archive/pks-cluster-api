@@ -15,7 +15,7 @@ RUN openssl genrsa -des3 -passout pass:x -out server.pass.key 2048 \
  && openssl req -new -key server.key -out server.csr -subj '/CN=pks.example.com/O=My Company Name LTD./C=US' \
  && openssl x509 -req -sha256 -days 365 -in server.csr -signkey server.key -out server.crt
 
-COPY ./main ./pks-cluster-api
+COPY ./pks-cluster-api ./pks-cluster-api
 COPY ./cluster.yaml.tmpl .
 COPY ./master.yaml.tmpl .
 
