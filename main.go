@@ -33,23 +33,15 @@ func main() {
 	// fake oauth token handler
 	r.HandleFunc("/oauth/token", tokenHandler)
 
-	r.HandleFunc("/v1/clusters", createClusterHandler(
+	r.HandleFunc("/v1/clusters", clusterCreationHandler(
 		gcpProject,
 		mustReadTemplate("cluster", clusterTmplPath),
 		mustReadTemplate("master", masterTmplPath),
 	)).Methods("POST")
 
-	r.HandleFunc("/v1/clusters/{cluster}", deleteClusterHandler).Methods("DELETE")
+	r.HandleFunc("/v1/clusters/{cluster}", clusterDeletionHandler).Methods("DELETE")
 
 	log.Fatal(http.ListenAndServeTLS(":8443", "server.crt", "server.key", r))
-}
-
-func mustReadTemplate(name, path string) *template.Template {
-	data, err := ioutil.ReadFile(path)
-	if err != nil {
-		log.Fatalf("Error reading %s: %#v", masterTmplPath, err)
-	}
-	return template.Must(template.New(name).Parse(string(data)))
 }
 
 func tokenHandler(w http.ResponseWriter, r *http.Request) {
@@ -65,51 +57,7 @@ func tokenHandler(w http.ResponseWriter, r *http.Request) {
 	}`))
 }
 
-func deleteClusterHandler(w http.ResponseWriter, r *http.Request) {
-	cluster, found := mux.Vars(r)["cluster"]
-	if !found {
-		w.WriteHeader(http.StatusBadRequest)
-		return
-	}
-
-	if err := kubectl("-n", cluster, "delete", "--all", "machines"); err != nil {
-		w.WriteHeader(http.StatusInternalServerError)
-		return
-	}
-
-	if err := kubectl("-n", cluster, "delete", "--all", "clusters"); err != nil {
-		w.WriteHeader(http.StatusInternalServerError)
-		return
-	}
-
-	if err := kubectl("delete", "ns", cluster); err != nil {
-		w.WriteHeader(http.StatusInternalServerError)
-		return
-	}
-
-	w.WriteHeader(204)
-}
-
-func deleteCluster(cluster string) error {
-	if err := kubectl("-n", cluster, "delete", "--all", "machines"); err != nil {
-		return err
-	}
-
-	if err := kubectl("-n", cluster, "delete", "--all", "clusters"); err != nil {
-		return err
-	}
-
-	return kubectl("delete", "ns", cluster)
-}
-
-func kubectl(args ...string) error {
-	cmd := exec.Command("kubectl", args...)
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	return cmd.Run()
-}
-
-func createClusterHandler(gcpProject string, cluster, master *template.Template) http.HandlerFunc {
+func clusterCreationHandler(gcpProject string, cluster, master *template.Template) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		body := &struct {
 			Name string `json:"name"`
@@ -174,6 +122,46 @@ func createClusterHandler(gcpProject string, cluster, master *template.Template)
 		"uuid": "string"
 	}`, body.Name)))
 	}
+}
+
+func clusterDeletionHandler(w http.ResponseWriter, r *http.Request) {
+	cluster, found := mux.Vars(r)["cluster"]
+	if !found {
+		w.WriteHeader(http.StatusBadRequest)
+		return
+	}
+
+	if err := kubectl("-n", cluster, "delete", "--all", "machines"); err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		return
+	}
+
+	if err := kubectl("-n", cluster, "delete", "--all", "clusters"); err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		return
+	}
+
+	if err := kubectl("delete", "ns", cluster); err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		return
+	}
+
+	w.WriteHeader(204)
+}
+
+func mustReadTemplate(name, path string) *template.Template {
+	data, err := ioutil.ReadFile(path)
+	if err != nil {
+		log.Fatalf("Error reading %s: %#v", masterTmplPath, err)
+	}
+	return template.Must(template.New(name).Parse(string(data)))
+}
+
+func kubectl(args ...string) error {
+	cmd := exec.Command("kubectl", args...)
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	return cmd.Run()
 }
 
 func kubeApplyTemplate(t *template.Template, tData interface{}, stdout io.Writer, errout io.Writer) error {
