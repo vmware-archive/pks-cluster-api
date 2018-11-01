@@ -30,51 +30,30 @@ kind: ServiceAccount
 metadata:
   name: pks-cluster-api
 ---
-kind: Role
+kind: ClusterRole
 apiVersion: rbac.authorization.k8s.io/v1beta1
 metadata:
-  name: cluster-api
+  name: pks-cluster-api
 rules:
-# - apiGroups: [""]
-#   resources: ["namespaces"]
-#   verbs: ["create","delete"]
 - apiGroups: ["cluster.k8s.io"]
   resources: ["clusters", "machines"]
-  verbs: ["create","delete"]
----
-kind: ClusterRole
-apiVersion: rbac.authorization.k8s.io/v1
-metadata:
-  name: cluster-api
-rules:
+  verbs: ["*"]
 - apiGroups: [""]
-  resources: ["namespaced"]
+  resources: ["namespaces"]
   verbs: ["*"]
 ---
-kind: RoleBinding
+kind: ClusterRoleBinding
 apiVersion: rbac.authorization.k8s.io/v1
 metadata:
-  name: pks-cluster-api-namespaces
+  name: pks-cluster-api
 roleRef:
   kind: ClusterRole
-  name: cluster-api
+  name: pks-cluster-api
   apiGroup: rbac.authorization.k8s.io
 subjects:
 - kind: ServiceAccount
   name: pks-cluster-api
   namespace: default
----
-apiVersion: rbac.authorization.k8s.io/v1beta1
-kind: RoleBinding
-metadata:
-  name: pks-cluster-api-cluster-resources
-roleRef:
-  apiGroup: rbac.authorization.k8s.io
-  kind: Role
-  name: cluster-api
-subjects:
-- kind: ServiceAccount
-  name: pks-cluster-api
 ---
 kind: Service
 apiVersion: v1
