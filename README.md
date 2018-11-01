@@ -8,4 +8,5 @@
 ### Supported Lifecycle Events
 * Cluster Creation
 * Cluster Deletion
+* Cluster Listing
 

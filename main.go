@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -33,6 +34,8 @@ func main() {
 	// fake oauth token handler
 	r.HandleFunc("/oauth/token", tokenHandler)
 
+	r.HandleFunc("/v1/clusters", clusterListingHandler).Methods("GET")
+
 	r.HandleFunc("/v1/clusters", clusterCreationHandler(
 		gcpProject,
 		mustReadTemplate("cluster", clusterTmplPath),
@@ -44,17 +47,55 @@ func main() {
 	log.Fatal(http.ListenAndServeTLS(":8443", "server.crt", "server.key", r))
 }
 
-func tokenHandler(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-	w.Write([]byte(`{
-		"access_token" : "someaccesstoken",
-		"token_type" : "bearer",
-		"id_token" : "someidtoken",
-		"refresh_token" : "somerefreshtoken",
-		"expires_in" : 43199,
-		"scope" : "openid oauth.approvals",
-		"jti" : "somejti"
-	}`))
+func clusterListingHandler(w http.ResponseWriter, r *http.Request) {
+	buf := bytes.NewBuffer([]byte{})
+
+	cmd := exec.Command("kubectl", "get", "clusters", "--all-namespaces", "-o=json")
+	cmd.Stdout = buf
+	cmd.Stderr = os.Stderr
+	if err := cmd.Run(); err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		return
+	}
+
+	type clusterList struct {
+		Clusters []struct {
+			Metadata struct {
+				Name string `json:"name"`
+				UID  string `json:"uid"`
+			} `json:"metadata"`
+		} `json:"items"`
+	}
+
+	list := clusterList{}
+
+	if err := json.NewDecoder(buf).Decode(&list); err != nil {
+		log.Printf("Error decoding clusters json: %#v", err)
+		w.WriteHeader(http.StatusInternalServerError)
+		return
+	}
+
+	type pksCluster struct {
+		Name            string `json:"name"`
+		Plan            string `json:"plan_name"`
+		UUID            string `json:"uuid"`
+		LastAction      string `json:"last_action"`
+		LastActionState string `json:"last_action_state"`
+	}
+
+	pksClusters := make([]pksCluster, len(list.Clusters), len(list.Clusters))
+
+	for i := range list.Clusters {
+		pksClusters[i] = pksCluster{
+			Name:            list.Clusters[i].Metadata.Name,
+			Plan:            controlPlaneVersion,
+			UUID:            list.Clusters[i].Metadata.UID,
+			LastAction:      "create",
+			LastActionState: "succeeded",
+		}
+	}
+
+	json.NewEncoder(w).Encode(pksClusters)
 }
 
 func clusterCreationHandler(gcpProject string, cluster, master *template.Template) http.HandlerFunc {
@@ -147,6 +188,19 @@ func clusterDeletionHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.WriteHeader(204)
+}
+
+func tokenHandler(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	w.Write([]byte(`{
+		"access_token" : "someaccesstoken",
+		"token_type" : "bearer",
+		"id_token" : "someidtoken",
+		"refresh_token" : "somerefreshtoken",
+		"expires_in" : 43199,
+		"scope" : "openid oauth.approvals",
+		"jti" : "somejti"
+	}`))
 }
 
 func mustReadTemplate(name, path string) *template.Template {
