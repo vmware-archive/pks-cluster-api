@@ -20,36 +20,34 @@ const (
 	masterTmplPath  = "master.yaml.tmpl"
 )
 
-var (
-	gcpProject  = ""
-	clusterTmpl *template.Template
-	masterTmpl  *template.Template
-)
-
 func main() {
-	if gcpProject = os.Getenv("GCP_PROJECT"); gcpProject == "" {
+	gcpProject := os.Getenv("GCP_PROJECT")
+	if gcpProject == "" {
 		log.Fatal("GCP_PROJECT is not set")
 	}
 
-	tmplString, err := ioutil.ReadFile(clusterTmplPath)
-	if err != nil {
-		log.Fatalf("Could not read %s: %#v", clusterTmplPath, err)
-	}
-	clusterTmpl = template.Must(template.New("cluster").Parse(string(tmplString)))
-
-	tmplString, err = ioutil.ReadFile(masterTmplPath)
-	if err != nil {
-		log.Fatalf("Could not read %s: %#v", masterTmplPath, err)
-	}
-	masterTmpl = template.Must(template.New("master").Parse(string(tmplString)))
-
+	// fake oauth token handler
 	http.HandleFunc("/oauth/token", tokenHandler)
-	http.HandleFunc("/v1/clusters", clusterHandler)
+
+	// cluster handler
+	http.HandleFunc("/v1/clusters", clusterHandler(
+		gcpProject,
+		mustReadTemplate("cluster", clusterTmplPath),
+		mustReadTemplate("master", masterTmplPath),
+	))
+
 	log.Fatal(http.ListenAndServeTLS(":8443", "server.crt", "server.key", nil))
 }
 
+func mustReadTemplate(name, path string) *template.Template {
+	data, err := ioutil.ReadFile(path)
+	if err != nil {
+		log.Fatalf("Error reading %s: %#v", masterTmplPath, err)
+	}
+	return template.Must(template.New(name).Parse(string(data)))
+}
+
 func tokenHandler(w http.ResponseWriter, r *http.Request) {
-	fmt.Println("Token Request")
 	w.Header().Set("Content-Type", "application/json")
 	w.Write([]byte(`{
 		"access_token" : "someaccesstoken",
@@ -62,13 +60,41 @@ func tokenHandler(w http.ResponseWriter, r *http.Request) {
 	}`))
 }
 
-func clusterHandler(w http.ResponseWriter, r *http.Request) {
+func clusterHandler(gcpProject string, cluster, master *template.Template) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method {
+		case http.MethodGet:
+			// Serve the resource.
+		case http.MethodPost:
+			createCluster(w, r, gcpProject, cluster, master)
+		case http.MethodPut:
+			// Update an existing record.
+		case http.MethodDelete:
+			// Remove the record.
+		default:
+			// Give an error message.
+		}
+	}
+}
+
+func createCluster(w http.ResponseWriter, r *http.Request, gcpProject string, cluster, master *template.Template) {
 	body := &struct {
 		Name string `json:"name"`
 	}{}
 
 	if err := json.NewDecoder(r.Body).Decode(body); err != nil {
-		fmt.Printf("Error decoding request body: %#v", err)
+		log.Printf("Error decoding request body: %#v", err)
+		w.WriteHeader(http.StatusInternalServerError)
+		return
+	}
+	r.Body.Close()
+
+	cmd := exec.Command("kubectl", "create", "ns", body.Name)
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+
+	err := cmd.Run()
+	if err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
 		return
 	}
@@ -77,29 +103,22 @@ func clusterHandler(w http.ResponseWriter, r *http.Request) {
 		ClusterName         string
 		KubeletVersion      string
 		ControlPlaneVersion string
-		GcpProject          string
+		GCPProject          string
 	}{
 		ClusterName:         body.Name,
 		KubeletVersion:      kubeletVersion,
 		ControlPlaneVersion: controlPlaneVersion,
-		GcpProject:          gcpProject,
+		GCPProject:          gcpProject,
 	}
 
-	cmd := exec.Command("kubectl", "create", "ns", body.Name)
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	err := cmd.Run()
-	if err != nil {
+	if err := kubeApplyTemplate(cluster, tmplData, os.Stdout, os.Stderr); err != nil {
+		log.Printf("Error applying cluster template: %#v", err)
 		w.WriteHeader(http.StatusInternalServerError)
 		return
 	}
 
-	if err := kubeApplyTemplate(clusterTmpl, tmplData, os.Stdout); err != nil {
-		w.WriteHeader(http.StatusInternalServerError)
-		return
-	}
-
-	if err := kubeApplyTemplate(masterTmpl, tmplData, os.Stdout); err != nil {
+	if err := kubeApplyTemplate(master, tmplData, os.Stdout, os.Stderr); err != nil {
+		log.Printf("Error applying master template: %#v", err)
 		w.WriteHeader(http.StatusInternalServerError)
 		return
 	}
@@ -128,11 +147,10 @@ func clusterHandler(w http.ResponseWriter, r *http.Request) {
 	}`, body.Name)))
 }
 
-func kubeApplyTemplate(t *template.Template, tData interface{}, out io.Writer) error {
+func kubeApplyTemplate(t *template.Template, tData interface{}, stdout io.Writer, errout io.Writer) error {
 	cmd := exec.Command("kubectl", "apply", "-f", "-")
-	// cmd := exec.Command("cat")
-	cmd.Stdout = out
-	cmd.Stderr = out
+	cmd.Stdout = stdout
+	cmd.Stderr = errout
 
 	stdinPipe, err := cmd.StdinPipe()
 	if err != nil {
@@ -146,6 +164,7 @@ func kubeApplyTemplate(t *template.Template, tData interface{}, out io.Writer) e
 	if err := t.Execute(stdinPipe, tData); err != nil {
 		return fmt.Errorf("cannot execute cluster template: %#v", err)
 	}
+
 	stdinPipe.Close()
 
 	return cmd.Wait()
