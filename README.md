@@ -43,7 +43,7 @@ Update `deployment.yaml` to include your GCP project name.
 
 Deploy PKS API:
 ```
-kubectl --context <system-cluster> apply -f deployment.yaml
+kubectl apply -f deployment.yaml
 ```
 
 #### 3. Use the PKS API
